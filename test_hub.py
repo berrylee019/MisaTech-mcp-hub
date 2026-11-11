@@ -84,7 +84,7 @@ class Hub(unittest.TestCase):
     def test_service_table(self):
         ids = [s for s, _ in main.SERVICES]
         self.assertEqual(len(ids), len(set(ids)))
-        self.assertEqual(set(ids), {"hanam", "calc", "dog", "baby", "event", "date", "school", "tour", "holiday"})
+        self.assertEqual(set(ids), {"hanam", "calc", "dog", "baby", "event", "date", "school", "tour", "holiday", "leave"})
         for _, f in main.SERVICES:
             self.assertTrue((Path(main.__file__).parent / "services" / f).exists(), f)
 
