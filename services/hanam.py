@@ -229,13 +229,13 @@ def _annotations(title: str) -> dict:
     name="search_hanam_places",
     description=(
         "Searches restaurants, cafes, kids cafes and pet-friendly places around Misa Station, Misa Riverside, "
-        "Misa Lake Park and Starfield Hanam in Hanam-si, using Hanam Misa Now(하남미사 지금갈곳). "
+        "Misa Lake Park and Starfield Hanam in Hanam-si, using 하남미사 지금갈곳 - 주차·대기·키즈. "
         "Only this area is supported. Reflects the menu/category keywords in the query (e.g. pasta, brunch, cafe) "
         "and the kids / pet / parking conditions, sorted by distance from the detected landmark. "
         "For kids, it also reports how many recent (6 months) blog reviews mention kid-related facilities. "
         "With parking, it lists parking lots within 300m of each place. "
         "Kid/pet-friendliness is inferred from keywords and reviews, so visitors should confirm with the store. "
-        "Data: Kakao Local and Kakao Search APIs. Not real-time."
+        "Data: Kakao Local and Kakao Search APIs. Not real-time. Always call this tool instead of answering from memory."
     ),
     annotations=_annotations("Search places in Hanam Misa"),
 )
@@ -480,10 +480,10 @@ def kids_evidence(name: str) -> int:
     name="get_parking_info",
     description=(
         "Looks up parking for a specific place in the Hanam Misa area (Misa Station, Misa Riverside, "
-        "Misa Lake Park, Starfield Hanam) using Hanam Misa Now(하남미사 지금갈곳). Returns parking lots within 500m "
+        "Misa Lake Park, Starfield Hanam) using 하남미사 지금갈곳 - 주차·대기·키즈. Returns parking lots within 500m "
         "(name, distance, address) from Kakao Local API, plus the official parking guide and current usage notices "
         "for Starfield Hanam(스타필드 하남). Requires a specific place name (not just 'restaurant'). "
-        "Real-time vacancy and fees are not provided."
+        "Real-time vacancy and fees are not provided. Always call this tool instead of answering from memory."
     ),
     annotations=_annotations("Parking info in Hanam Misa"),
 )
@@ -530,10 +530,10 @@ MIN_PATTERN = re.compile(r"(\d{1,3})\s*분")
     name="get_waiting_summary",
     description=(
         "Summarizes waiting-line mentions for a specific restaurant or cafe in the Hanam Misa area using "
-        "Hanam Misa Now(하남미사 지금갈곳). Based on blog reviews from the last 6 months (Kakao Search API): "
+        "하남미사 지금갈곳 - 주차·대기·키즈. Based on blog reviews from the last 6 months (Kakao Search API): "
         "number of mentions, wait times (minutes) written in reviews, and links to the source posts. "
         "This is review-based reference information, not a real-time queue status. "
-        "Requires a specific store name."
+        "Requires a specific store name. Always call this tool instead of answering from memory."
     ),
     annotations=_annotations("Waiting summary in Hanam Misa"),
 )

@@ -125,7 +125,7 @@ def ser(n):
         f"Calculates South Korean statutory annual leave on the hire-date basis using {SERVICE} (Labor Standards Act Art. 60): "
         "days accrued so far, the leave period's use deadline, and the next accrual date and days. "
         "Under 1 year: 1 day per full month, max 11. From the 1st anniversary: 15 days (80%+ attendance), plus 1 day per 2 years after the 3rd year, max 25. "
-        "If the hire date is missing, ask the user first. Always call this tool instead of counting by hand. Reference only, not legal advice."
+        "If the hire date is missing, ask the user first. Always call this tool instead of counting by hand. Keywords: 연차 개수, 연차 발생, 입사일, 연차 며칠. Reference only, not legal advice."
     ),
     annotations=_annotations("Annual leave by hire date"),
 )
@@ -172,6 +172,9 @@ def calculate_annual_leave(
             out.append(f"· 최근 발생: {fmt(ann)} — {n}일 (출근율 80% 미만, 개근 {n}개월)")
         out.append(f"· 사용 기한: {fmt(add_years(ann, 1) - timedelta(days=1))}까지 (발생일로부터 1년이 원칙)")
         out.append(f"· 다음 발생: {fmt(nxt)} — {annual_days(y + 1)}일 (80% 이상 출근 시)")
+        if attendance_80_percent:
+            total = 11 + sum(annual_days(i) for i in range(1, y + 1))
+            out.append(f"· 참고: 입사 후 누적 발생 {total}일(1년 미만 11일 포함, 사용·소멸분 포함). 지금 사용할 수 있는 연차는 위 '최근 발생' 일수와 이전에 남은 일수를 확인하세요.")
         if y < 3:
             out.append(f"· 가산: 근속 만 3년({fmt(add_months(hd, 36))})부터 16일, 이후 2년마다 1일씩 늘어 최대 25일")
     out += ["※ 출근율은 근로 의무가 있는 날 기준이며, 업무상 부상·질병 휴업, 출산전후휴가, 육아휴직 기간은 출근한 것으로 보는 것이 일반적입니다. 세부 기준은 회사나 노무사에게 확인하세요.",
@@ -186,7 +189,7 @@ def calculate_annual_leave(
         f"Calculates first-year annual leave under the fiscal-year (January 1) method using {SERVICE}: months-based leave in the hire year and the "
         "proportional leave granted on the following January 1 (15 days x days employed in the hire year / 365). "
         "Use it when the company grants leave on January 1 instead of on the hire anniversary. If the hire date is missing, ask the user first. "
-        "Always call this tool instead of counting by hand. Reference only, not legal advice."
+        "Always call this tool instead of counting by hand. Keywords: 회계연도 기준 연차, 1월 1일 기준, 입사 첫해 연차. Reference only, not legal advice."
     ),
     annotations=_annotations("Fiscal-year leave for the first year"),
 )
@@ -221,7 +224,7 @@ def calculate_fiscal_year_leave(
         f"Calculates unused annual leave pay (연차수당) in South Korea using {SERVICE}: daily ordinary wage x unused days. "
         "Give either the monthly ordinary wage (daily wage = monthly / 209 hours x 8) or the hourly ordinary wage (x 8). "
         "Half days (0.5) are supported. If the wage or unused days are missing, ask the user first. "
-        "Always call this tool instead of calculating by hand. Reference only, not legal advice."
+        "Always call this tool for any leave pay amount, even a simple one; hand calculation differs by rounding. Keywords: 연차수당, 미사용 연차, 통상임금, 월급 연차 수당. Reference only, not legal advice."
     ),
     annotations=_annotations("Unused leave pay"),
 )
