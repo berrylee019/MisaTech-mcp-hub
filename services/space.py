@@ -40,6 +40,7 @@ PEOPLE_WORDS = ("astronaut", "crew", "commander", "portrait", "cosmonaut", "admi
                 "press", "conference", "team", "visit", "employees", "interview", "panel", "award", "teacher", "student", "event",
                 "reception", "meeting", "tour", "people", "children", "kids", "audience", "attend", "speaks", "poses", "pictured",
                 "director", "scientist", "engineer", "officials", "gathered", "celebrate", "party")
+ILLUSTRATION_RE = re.compile(r"artist'?s?[’']?s? (concept|rendering|impression)|illustration|animation|simulation|computer[- ]generated", re.I)
 COPYRIGHT_RE = re.compile(r"©|\(c\)|copyright|all rights reserved|used with permission", re.I)
 
 
@@ -162,7 +163,7 @@ def usable(item):
     blob = " ".join(str(d.get(k) or "") for k in ("title", "description", "description_508", "secondary_creator", "photographer"))
     if COPYRIGHT_RE.search(blob):
         return False
-    if nid.upper().startswith("NHQ"):
+    if nid.upper().startswith("NHQ") or ILLUSTRATION_RE.search(blob):   # 사진이 아닌 그림·시뮬레이션 제외
         return False
     if (d.get("photographer") or d.get("secondary_creator")) and not is_science_id(nid):
         return False
@@ -203,15 +204,15 @@ def parse_year(d):
     name="search_space_images",
     description=(
         f"Searches space photos (planets, galaxies, nebulae, Mars rover, ISS, eclipses, etc.) in the NASA Image and Video Library using {SERVICE} "
-        "and shows up to 5 photos with title, date and credit. Pass the keyword in English (translate Korean first, e.g. 화성 -> mars, 은하수 -> milky way); "
-        "common Korean words are also converted automatically. Photos with copyright marks and portraits of people are excluded. "
+        "and shows up to 5 photos with title, date and credit. Pass only the subject the user asked for, in English (e.g. 화성 -> mars, 은하수 -> milky way); do not add extra words such as rover or telescope unless the user said them; "
+        "common Korean words are also converted automatically. Photos with copyright marks, portraits of people and artist illustrations are excluded. "
         "Always call this tool instead of answering from memory. Keywords: 우주 사진, 화성 사진, 은하 사진, 허블, 제임스웹, 행성. Reference data only; not endorsed by NASA."
     ),
     annotations=_annotations("Search space photos"),
 )
 @_logged
 def search_space_images(
-    keyword: Annotated[str, Field(description="English search words, e.g. mars rover, andromeda galaxy, saturn rings (2+ characters)")] = "",
+    keyword: Annotated[str, Field(description="English subject only, e.g. mars, andromeda galaxy, saturn rings; add rover or telescope only if the user asked (2+ characters)")] = "",
     year_start: Annotated[str, Field(description="Optional first year, e.g. 2020; empty means any")] = "",
 ) -> str:
     kw = to_english(keyword)
