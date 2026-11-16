@@ -153,8 +153,38 @@ def entity_info(qids):
             if v:
                 c = v
                 break
-        out[qid] = {"country": c, "en": ((e.get("labels") or {}).get("en") or {}).get("value", "")}
+        adm = []
+        for cl in (e.get("claims") or {}).get("P131", []):
+            v = (((cl.get("mainsnak") or {}).get("datavalue") or {}).get("value") or {}).get("id")
+            if v:
+                adm.append(v)
+        out[qid] = {"country": c, "en": ((e.get("labels") or {}).get("en") or {}).get("value", ""), "admin": adm[:3]}
     return out
+
+
+def with_country(qids):
+    """entity_info + 국가(P17)가 없으면 소재 행정구역(P131)을 최대 3단계 따라 올라가 국가를 채운다"""
+    info = entity_info(qids)
+    pending = {q: list(v.get("admin") or []) for q, v in info.items() if not v.get("country")}
+    for _ in range(3):
+        ids = sorted({a for adms in pending.values() for a in adms})
+        if not ids:
+            break
+        ai = entity_info(ids)
+        nxt = {}
+        for q, adms in pending.items():
+            more = []
+            for a in adms:
+                av = ai.get(a) or {}
+                if av.get("country"):
+                    info[q]["country"] = av["country"]
+                    break
+                more += av.get("admin") or []
+            else:
+                if more:
+                    nxt[q] = more[:3]
+        pending = nxt
+    return info
 
 
 def country_names(qids):
@@ -235,7 +265,7 @@ def load_spot(lang, title):
         q = (p.get("pageprops") or {}).get("wikibase_item")
         if q and "missing" not in p:
             page = {"title": p["title"], "extract": (p.get("extract") or "").strip(), "qid": q}
-            info = entity_info([q]).get(q, {})
+            info = with_country([q]).get(q, {})
             return page, info
     return None, None
 
@@ -276,10 +306,11 @@ def search_world_spot(
         pages = [p for p in pages if not commercial(p["title"])]
         if not pages:
             continue
-        info, err = call(entity_info, [p["qid"] for p in pages])
+        info, err = call(with_country, [p["qid"] for p in pages])
         if err:
             return err
         cand = [(p, (info.get(p["qid"]) or {}).get("country")) for p in pages]
+        logger.info("SEARCH lang=%s pages=%d with_country=%d", lang, len(pages), sum(1 for p, c in cand if c))
         cand = [(p, c) for p, c in cand if c]
         if any(c == KOREA for p, c in cand):
             korea = True
