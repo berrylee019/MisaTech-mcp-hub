@@ -202,9 +202,20 @@ def country_names(qids):
     return out
 
 
+ALIASES = {"중국": "중화인민공화국", "대만": "중화민국", "타이완": "중화민국", "taiwan": "중화민국", "usa": "united states", "us": "united states",
+           "america": "united states", "uk": "united kingdom", "england": "united kingdom", "russia": "russia", "러시아": "러시아",
+           "vietnam": "vietnam", "uae": "united arab emirates", "홍콩": "hong kong", "czech": "czech republic"}
+
+
 def country_match(names, want):
     w = (want or "").strip().lower()
-    return not w or w in (names[0].lower(), names[1].lower())
+    if not w:
+        return True
+    ko, en = names[0].lower(), names[1].lower()
+    for x in {w, ALIASES.get(w, w).lower()}:
+        if x == ko or x == en or (len(x) >= 3 and (x in ko or x in en)):
+            return True
+    return False
 
 
 def commercial(title):
@@ -298,7 +309,7 @@ def search_world_spot(
     if len(kw) < 2 or len(kw) > 60:
         return bad("검색어를 2글자 이상 입력해 주세요. 예: 후시미 이나리, Grand Canyon")
     want = (country or "").strip()[:40]
-    found, korea = [], False
+    found, korea, fallback = [], False, []
     for lang in LANGS:
         pages, err = call(find_pages, lang, kw)
         if err:
@@ -318,17 +329,24 @@ def search_world_spot(
         names, err = call(country_names, [c for p, c in cand])
         if err:
             return err
+        seen = {f["qid"] for f in found} | {f["qid"] for f in fallback}
         for p, c in cand:
             nm = names.get(c)
-            if nm and country_match(nm, want) and all(f["qid"] != p["qid"] for f in found):
-                found.append({**p, "lang": lang, "country": nm[0]})
+            if not nm or p["qid"] in seen:
+                continue
+            item = {**p, "lang": lang, "country": nm[0]}
+            (found if country_match(nm, want) else fallback).append(item)
         if found:
             break
+    note = ""
+    if not found and fallback and want:
+        found = fallback
+        note = f"\n(입력한 국가 '{want}'와 일치하는 결과가 없어 다른 나라의 결과를 보여 드립니다.)"
     if not found:
         if korea:
             return bad("한국 관광지는 '관광지 사진 안내 - Tour Photo Guide'에서 찾아 주세요. 이 서비스는 한국 밖 관광지를 안내합니다.")
         return bad("조건에 맞는 장소를 찾지 못했습니다. 다른 이름(영어·현지어)이나 국가를 바꿔 보세요.")
-    out = [f"■ '{kw}' 검색 결과 {len(found)}곳 중 {min(5, len(found))}곳"]
+    out = [f"■ '{kw}' 검색 결과 {len(found)}곳 중 {min(5, len(found))}곳{note}"]
     for f in found[:5]:
         ex = f["extract"].split("\n")[0]
         ex = ex if len(ex) <= 160 else ex[:160].rstrip() + "…"
