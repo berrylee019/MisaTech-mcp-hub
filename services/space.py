@@ -36,7 +36,10 @@ KO_EN = {"화성": "mars", "목성": "jupiter", "토성": "saturn", "금성": "v
          "국제우주정거장": "international space station", "우주정거장": "space station", "허블": "hubble", "제임스웹": "james webb",
          "웹 망원경": "james webb", "우주왕복선": "space shuttle", "로켓": "rocket", "은하단": "galaxy cluster", "초신성": "supernova",
          "별": "star", "우주": "universe", "토성 고리": "saturn rings", "오리온": "orion nebula", "안드로메다": "andromeda galaxy"}
-PEOPLE_WORDS = ("astronaut", "crew", "commander", "portrait", "official portrait", "cosmonaut", "administrator")
+PEOPLE_WORDS = ("astronaut", "crew", "commander", "portrait", "cosmonaut", "administrator", "celebration", "ceremony", "briefing",
+                "press", "conference", "team", "visit", "employees", "interview", "panel", "award", "teacher", "student", "event",
+                "reception", "meeting", "tour", "people", "children", "kids", "audience", "attend", "speaks", "poses", "pictured",
+                "director", "scientist", "engineer", "officials", "gathered", "celebrate", "party")
 COPYRIGHT_RE = re.compile(r"©|\(c\)|copyright|all rights reserved|used with permission", re.I)
 
 
@@ -146,16 +149,25 @@ def https(u):
     return "https://" + u[7:] if u.startswith("http://") else u
 
 
+def is_science_id(nid):
+    return nid.upper().startswith("PIA")
+
+
 def usable(item):
-    """사진이고 저작권 표시·인물 중심이 아닌 것만"""
+    """천체·탐사선·망원경 사진 중심: 저작권 표시, 인물·행사 사진(본부 행사 NHQ, 촬영자 표기 사진), 인물 관련 단어가 든 사진은 제외"""
     d = (item.get("data") or [{}])[0]
-    if d.get("media_type") != "image" or not d.get("nasa_id"):
+    nid = d.get("nasa_id") or ""
+    if d.get("media_type") != "image" or not nid:
         return False
     blob = " ".join(str(d.get(k) or "") for k in ("title", "description", "description_508", "secondary_creator", "photographer"))
     if COPYRIGHT_RE.search(blob):
         return False
-    low = (d.get("title") or "").lower() + " " + " ".join(d.get("keywords") or []).lower()
-    return not any(w in low for w in PEOPLE_WORDS)
+    if nid.upper().startswith("NHQ"):
+        return False
+    if (d.get("photographer") or d.get("secondary_creator")) and not is_science_id(nid):
+        return False
+    text = ((d.get("title") or "") + " " + " ".join(d.get("keywords") or []) + " " + (d.get("description") or "")).lower()
+    return not any(re.search(r"\b" + re.escape(w) + r"(s|es|ed)?\b", text) for w in PEOPLE_WORDS)
 
 
 def preview_url(item):
@@ -217,6 +229,7 @@ def search_space_images(
     if err:
         return err
     items = [i for i in ((data.get("collection") or {}).get("items") or []) if usable(i) and preview_url(i)]
+    items.sort(key=lambda i: 0 if is_science_id(i["data"][0]["nasa_id"]) else 1)   # JPL 행성 사진(PIA)을 먼저
     if not items:
         return bad("조건에 맞는 우주 사진을 찾지 못했습니다. 다른 영어 검색어로 시도해 보세요.")
     out = [f"■ '{kw}' 우주 사진 {min(5, len(items))}장"]
