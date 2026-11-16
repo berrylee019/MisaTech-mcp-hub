@@ -24,7 +24,7 @@ mcp = FastMCP(
                   "그대로 전달하고, 응답에 없는 정보를 지어내지 마세요."),
 )
 
-TIMEOUT = 3.0
+TIMEOUT = 6.0
 CACHE_TTL = 12 * 3600
 KOREA = "Q884"   # 한국은 기존 '관광지 사진 안내 - Tour Photo Guide'(한국관광공사)가 담당
 LANGS = ("ko", "en", "ja", "zh")
@@ -94,15 +94,16 @@ def wiki_get(host, params):
     t0 = time.perf_counter()
     try:
         import httpx
-        ua = f"WorldPhotoGuide/1.0 ({os.environ.get('WIKI_CONTACT', 'PlayMCP service').strip() or 'PlayMCP service'})"
+        ua = f"WorldPhotoGuide/1.0 ({os.environ.get('WIKI_CONTACT', '').strip() or 'https://misatech-mcp-hub.onrender.com'}) httpx"
         r = httpx.get(f"https://{host}/w/api.php", params={"format": "json", "formatversion": "2", **params},
                       headers={"User-Agent": ua, "Accept": "application/json"}, timeout=TIMEOUT)
         r.raise_for_status()
         data = r.json()
         if not isinstance(data, dict) or "error" in data:
             raise ValueError
-    except Exception:
-        logger.info("WIKI host=%s status=error", host.split(".")[0])
+    except Exception as e:   # 요청 주소·내용은 기록하지 않고 원인 종류와 HTTP 코드만 남긴다
+        code = getattr(getattr(e, "response", None), "status_code", "-")
+        logger.info("WIKI host=%s status=error type=%s http=%s", host.split(".")[0], type(e).__name__, code)
         raise WikiUnavailable() from None
     logger.info("WIKI host=%s ms=%d", host.split(".")[0], int((time.perf_counter() - t0) * 1000))
     if len(_CACHE) > 300:
@@ -253,7 +254,8 @@ def call(fn, *a):
         f"Searches tourist attractions around the world (except Korea) by keyword using {SERVICE} (Wikipedia, Wikidata, Wikimedia Commons) "
         "and lists up to 5 places with country, a short introduction and a spot_id for photos. Korean, English, Japanese or Chinese keywords work "
         "(e.g. 후시미 이나리, Grand Canyon, 金閣寺, 故宫). Optional country filters the result (e.g. 일본, 미국, 중국, France). Lodging, shopping and restaurants are not covered. "
-        "Always call this tool instead of answering from memory. Keywords: 해외 관광지, 세계 여행 사진, 일본 관광지, 미국 관광지, 중국 관광지. Reference data only."
+        "Use this tool for any place outside Korea (Japan, USA, China, Europe, Southeast Asia, etc.); for places inside Korea use the Korean tour photo service instead. "
+        "Always call this tool instead of answering from memory. Keywords: 해외 관광지, 세계 여행 사진, 일본 관광지, 미국 관광지, 중국 관광지, 유럽 관광지. Reference data only."
     ),
     annotations=_annotations("Search world spots"),
 )
