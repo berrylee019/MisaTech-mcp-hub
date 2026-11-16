@@ -29,6 +29,7 @@ SERVICES = [
     ("holiday", "holiday.py"),
     ("leave", "leave.py"),
     ("lease", "lease.py"),
+    ("world", "world.py"),
 ]
 
 log = logging.getLogger("hub")
