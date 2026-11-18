@@ -31,6 +31,7 @@ SERVICES = [
     ("lease", "lease.py"),
     ("world", "world.py"),
     ("space", "space.py"),
+    ("body", "body.py"),
 ]
 
 log = logging.getLogger("hub")
