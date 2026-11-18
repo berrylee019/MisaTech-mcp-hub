@@ -31,7 +31,7 @@ SOURCE = "출처: 위키백과·위키미디어 공용(Wikimedia Commons)"
 RELAY_NOTE = "※ 답변 시 위 부위 이름·그림·출처·면책 문구를 그대로 전달하고, 이 응답에 없는 의학적 설명이나 건강 조언을 덧붙이지 마세요."
 OK_LICENSE = re.compile(r"^(CC BY(-SA)?[ -]\d\.\d|CC0|Public domain|PD\b)", re.I)
 # 그림 출처 허용 목록: Gray's Anatomy 도판, Blausen Medical 일러스트(CC BY 3.0), NCI 일러스트
-OK_FILE = re.compile(r"^File:(Gray\d+|Blausen[ _]\d+|Illu[ _])", re.I)
+OK_FILE = re.compile(r"^File:(Gray\d+(_az)?\.(png|jpg)|Blausen[ _]\d+|Illu[ _])", re.I)   # Gray 원본·채색판만(스페인어 등 번역판 제외)
 MEDICAL_RE = re.compile(r"증상|통증|아프|아파|질환|질병|병원|진단|치료|수술|약|처방|암|염증|감염|응급|부작용|다이어트|임신|낙태|성기|생식기|자궁|고환|음경|유방|\b(pain|symptom|disease|cancer|treatment|surgery|diagnos\w*|drug|medicine)\b", re.I)
 
 # (한국어, 영어, 분류, 별칭)
