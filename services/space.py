@@ -220,16 +220,30 @@ def search_space_images(
         return bad("검색어를 영어로 바꿔 다시 호출해 주세요. 예: 화성 탐사 → mars rover")
     if len(kw) < 2 or len(kw) > 80:
         return bad("검색어를 2글자 이상 입력해 주세요. 예: mars, andromeda galaxy")
-    params = {"q": kw, "media_type": "image", "page_size": "30"}
+    params = {"q": kw, "media_type": "image", "page_size": "100"}
     ys = (year_start or "").strip()
     if ys:
         if not (ys.isdigit() and len(ys) == 4 and 1950 <= int(ys) <= 2100):
             return bad("시작 연도는 4자리 숫자로 입력해 주세요. 예: 2020")
         params["year_start"] = ys
-    data, err = call(nasa_get, "/search", params)
-    if err:
-        return err
-    items = [i for i in ((data.get("collection") or {}).get("items") or []) if usable(i) and preview_url(i)]
+    # 행사·인물 사진을 걸러 내면 남는 것이 적을 수 있어 최대 3쪽까지 모은다
+    items, seen = [], set()
+    for page in range(1, 4):
+        data, err = call(nasa_get, "/search", {**params, "page": str(page)})
+        if err:
+            if items:
+                break
+            return err
+        raw = (data.get("collection") or {}).get("items") or []
+        for i in raw:
+            nid = (i.get("data") or [{}])[0].get("nasa_id")
+            if nid and nid not in seen and usable(i) and preview_url(i):
+                seen.add(nid)
+                items.append(i)
+        if len(items) >= 10 or len(raw) < 100:
+            break
+    if not items:
+        return bad("조건에 맞는 우주 사진을 찾지 못했습니다. 다른 영어 검색어로 시도해 보세요.")
     items.sort(key=lambda i: 0 if is_science_id(i["data"][0]["nasa_id"]) else 1)   # JPL 행성 사진(PIA)을 먼저
     if not items:
         return bad("조건에 맞는 우주 사진을 찾지 못했습니다. 다른 영어 검색어로 시도해 보세요.")
