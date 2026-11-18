@@ -440,10 +440,42 @@ def _is_generic(place: str) -> bool:
     return not rest.strip()
 
 
+NOISE_WORDS = ["근처", "주변", "미사역", "미사강변", "미사호수공원", "웨이팅", "대기", "주차", "주차장", "후기", "어때", "알려줘"]
+
+
+def _core_tokens(s: str) -> list:
+    """상호의 핵심 단어(지역어·지점 표기 제외). 예: '아웃백 하남스타필드점' → ['아웃백']"""
+    out = []
+    for t in re.findall(r"[0-9A-Za-z가-힣]+", s or ""):
+        for w in LOCAL_WORDS + NOISE_WORDS:
+            t = t.replace(w, "")
+        if t.endswith("점") and len(t) <= 3:
+            t = t[:-1] if len(t) > 2 else ""
+        if len(t) >= 2 and t not in GENERIC_WORDS:
+            out.append(t)
+    return out
+
+
+def _matches(query: str, cand_name: str) -> bool:
+    """후보 상호가 질문한 장소와 관련 있는지(핵심 단어 중 하나라도 포함). 핵심 단어가 없으면(스타필드 하남 등) 통과"""
+    core = _core_tokens(query)
+    if not core:
+        return True
+    flat = re.sub(r"\s+", "", cand_name or "")
+    return any(t in flat for t in core)
+
+
+def _other_region(place: str) -> bool:
+    """하남·미사 외 지역만 언급한 질문인지"""
+    return any(r in place for r in OTHER_REGIONS) and not any(w in place for w in LOCAL_WORDS)
+
+
 def _find_place(place: str):
-    """이름으로 하남 미사 일대 장소 1곳 조회 (주차장 제외 첫 결과)"""
-    cands = _candidates(place, size=1)
-    return cands[0] if cands else None
+    """이름으로 하남 미사 일대 장소 1곳 조회 (주차장 제외, 질문한 상호와 관련 있는 첫 결과만)"""
+    for c in _candidates(place, size=8):
+        if _matches(place, c.get("place_name", "")):
+            return c
+    return None
 
 
 def _ask_specific(place: str) -> str:
@@ -496,6 +528,8 @@ def get_parking_info(
     if not place:
         return "장소명을 입력해주세요."
     try:
+        if _other_region(place):
+            return "이 서비스는 하남시 미사 일대(미사역·미사강변·미사호수공원·스타필드 하남)만 안내합니다. 해당 지역의 장소로 다시 입력해주세요."
         if _is_generic(place):
             return _ask_specific(place)
         d = _find_place(place)
@@ -533,7 +567,7 @@ MIN_PATTERN = re.compile(r"(\d{1,3})\s*분")
         "하남미사 지금갈곳 - 주차·대기·키즈. Based on blog reviews from the last 6 months (Kakao Search API): "
         "number of mentions, wait times (minutes) written in reviews, and links to the source posts. "
         "This is review-based reference information, not a real-time queue status. "
-        "Requires a specific store name. Always call this tool instead of answering from memory."
+        "Requires a specific store name in Hanam Misa; if the store is not found there it says so instead of showing other places. Always call this tool instead of answering from memory."
     ),
     annotations=_annotations("Waiting summary in Hanam Misa"),
 )
@@ -546,10 +580,16 @@ def get_waiting_summary(
     if not place:
         return "장소명을 입력해주세요."
     try:
+        if _other_region(place):
+            return "이 서비스는 하남시 미사 일대(미사역·미사강변·미사호수공원·스타필드 하남)만 안내합니다. 해당 지역의 장소로 다시 입력해주세요."
         if _is_generic(place):
             return _ask_specific(place)
         d = _find_place(place)
-        name = d["place_name"] if d else place
+        if not d:
+            return (f"'{place}'을(를) 하남 미사 일대에서 찾지 못했습니다. 정확한 상호명으로 다시 입력해주세요. "
+                    "(다른 장소의 후기를 대신 보여 드리지 않습니다.)")
+        name = d["place_name"]
+        core = _core_tokens(name)
         since = datetime.now(KST) - timedelta(days=183)
 
         docs = kakao_get("/search/blog", {
@@ -566,6 +606,8 @@ def get_waiting_summary(
                 continue
             text = strip_tags(doc.get("title", "") + " " + doc.get("contents", ""))
             if not any(w in text for w in WAIT_WORDS):
+                continue
+            if core and not any(t in re.sub(r"\s+", "", text) for t in core):   # 해당 상호를 언급하지 않은 후기는 제외
                 continue
             sentences = re.split(r"(?<=[.!?…])\s+|\n", text)
             snippet = next((s for s in sentences if any(w in s for w in WAIT_WORDS)), text[:80])
