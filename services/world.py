@@ -167,7 +167,7 @@ def entity_info(qids):
             if v:
                 inst.append(v)
         out[qid] = {"country": c, "en": ((e.get("labels") or {}).get("en") or {}).get("value", ""), "admin": adm[:3],
-                    "instance": inst}
+                    "instance": inst, "coord": bool((e.get("claims") or {}).get("P625"))}
     return out
 
 
@@ -228,8 +228,9 @@ def country_match(names, want):
 
 
 def is_place(info):
-    """국가·기업·인물·행사 같은 항목이 아니라 장소로 볼 수 있는지"""
-    return not (set((info or {}).get("instance") or []) & NOT_PLACE)
+    """국가·기업·인물·행사 같은 항목이 아니라 장소(위키데이터에 좌표가 있는 항목)로 볼 수 있는지"""
+    info = info or {}
+    return bool(info.get("coord")) and not (set(info.get("instance") or []) & NOT_PLACE)
 
 
 def commercial(title):
