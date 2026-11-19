@@ -29,7 +29,7 @@ CACHE_TTL = 12 * 3600
 # 관광지가 아닌 항목(국가·대륙·기업·단체·인물·행사·영화·동음이의 문서)의 위키데이터 분류
 NOT_PLACE = {"Q6256", "Q3624078", "Q5107", "Q4830453", "Q783794", "Q891723", "Q43229", "Q5", "Q1656682", "Q15275719", "Q1190554",
              "Q7278", "Q11424", "Q4167410", "Q431289", "Q2085381",
-             "Q82794", "Q1620908", "Q3024240", "Q112099"}   # 지리적 지역·역사 지역·역사 국가·섬나라
+             "Q82794", "Q1620908", "Q3024240", "Q112099", "Q855697"}   # 지리적 지역·역사 지역·역사 국가·섬나라·아대륙
 KOREA = "Q884"   # 한국은 기존 '관광지 사진 안내 - Tour Photo Guide'(한국관광공사)가 담당
 LANGS = ("ko", "en", "ja", "zh")
 OK_LICENSE = re.compile(r"^(CC BY(-SA)?[ -]\d\.\d|CC0|Public domain|PD\b)", re.I)
@@ -168,9 +168,7 @@ def entity_info(qids):
             if v:
                 inst.append(v)
         out[qid] = {"country": c, "en": ((e.get("labels") or {}).get("en") or {}).get("value", ""), "admin": adm[:3],
-                    "instance": inst, "coord": bool((e.get("claims") or {}).get("P625")),
-                    "cat": next((((cl.get("mainsnak") or {}).get("datavalue") or {}).get("value") for cl in (e.get("claims") or {}).get("P373", [])
-                                 if isinstance(((cl.get("mainsnak") or {}).get("datavalue") or {}).get("value"), str)), "")}
+                    "instance": inst, "coord": bool((e.get("claims") or {}).get("P625"))}
     return out
 
 
@@ -299,22 +297,12 @@ def fmt_duration(sec):
     return f"{sec // 60}분 {sec % 60:02d}초" if sec >= 60 else f"{sec}초"
 
 
-def commons_videos(label, limit=3, cat=""):
-    """위키미디어 공용 영상 검색 → [{thumb, title, artist, license, page, duration}] (라이선스 확인·장소 이름 일치)
-    공용 분류(P373)가 있으면 그 분류 아래의 영상을 먼저 찾고, 없거나 결과가 없으면 이름 검색으로 대신한다."""
-    props = {"action": "query", "generator": "search", "gsrnamespace": "6", "gsrlimit": "20", "prop": "imageinfo",
-             "iiprop": "url|extmetadata|mime|size|mediatype", "iiurlwidth": "800"}
-    d = None
-    if cat:
-        try:
-            d = wiki_get(commons_host(), {**props, "gsrsearch": f'deepcat:"{cat}" filetype:video'})
-            if not (d.get("query", {}).get("pages") or []):
-                d = None
-        except WikiUnavailable:
-            d = None
-    by_cat = d is not None
-    if d is None:
-        d = wiki_get(commons_host(), {**props, "gsrsearch": f"{label} filetype:video"})
+def commons_videos(label, limit=3):
+    """위키미디어 공용 영상 검색 → [{thumb, title, artist, license, page, duration}] (라이선스 확인·파일 이름에 장소 영문명 포함)
+    ※ 공용 분류(deepcat) 검색은 하위 분류가 너무 넓어 엉뚱한 영상이 섞여 사용하지 않는다."""
+    d = wiki_get(commons_host(), {"action": "query", "generator": "search", "gsrsearch": f"{label} filetype:video",
+                                  "gsrnamespace": "6", "gsrlimit": "20", "prop": "imageinfo",
+                                  "iiprop": "url|extmetadata|mime|size|mediatype", "iiurlwidth": "800"})
     pages = sorted((d.get("query", {}).get("pages") or []), key=lambda p: p.get("index", 99))
     out, hidden = [], 0
     for p in pages:
@@ -323,7 +311,7 @@ def commons_videos(label, limit=3, cat=""):
         low = title.lower()
         if not ((ii.get("mime") or "").startswith("video/") or (ii.get("mediatype") or "").upper() == "VIDEO"):
             continue
-        if any(w in low for w in BAD_VIDEO_WORDS) or (not by_cat and not title_relevant(title, label)):
+        if any(w in low for w in BAD_VIDEO_WORDS) or not title_relevant(title, label):
             continue
         md = ii.get("extmetadata") or {}
         lic = (md.get("LicenseShortName") or {}).get("value", "")
@@ -534,7 +522,7 @@ def get_world_spot_videos(
     if err:
         return err
     label = info.get("en") or page["title"]
-    r2, err = call(commons_videos, label, 3, info.get("cat") or "")
+    r2, err = call(commons_videos, label, 3)
     if err:
         return err
     vids, hidden = r2
