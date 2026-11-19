@@ -263,6 +263,59 @@ def photo_md(ph, alt):
     return f"![{alt}]({ph['url']})\n(사진: {ph['artist']} · {ph['license']} · 원본 {ph['page']})"
 
 
+BAD_VIDEO_WORDS = ("map", "logo", "flag", "animation", "diagram", "screencast", "presentation", "interview", "lecture")
+
+
+def title_relevant(title, label):
+    """영상 파일 이름에 장소 영문명 단어(3글자 이상)가 하나라도 들어 있는지"""
+    low = (title or "").lower()
+    toks = [t for t in re.findall(r"[a-z0-9]{3,}", (label or "").lower())]
+    return any(t in low for t in toks) if toks else True
+
+
+def fmt_duration(sec):
+    try:
+        sec = int(float(sec))
+    except (TypeError, ValueError):
+        return ""
+    return f"{sec // 60}분 {sec % 60:02d}초" if sec >= 60 else f"{sec}초"
+
+
+def commons_videos(label, limit=3):
+    """위키미디어 공용 영상 검색 → [{thumb, title, artist, license, page, duration}] (라이선스 확인·장소 이름 일치)"""
+    d = wiki_get(commons_host(), {"action": "query", "generator": "search", "gsrsearch": f"{label} filetype:video",
+                                  "gsrnamespace": "6", "gsrlimit": "20", "prop": "imageinfo",
+                                  "iiprop": "url|extmetadata|mime|size|mediatype", "iiurlwidth": "800"})
+    pages = sorted((d.get("query", {}).get("pages") or []), key=lambda p: p.get("index", 99))
+    out, hidden = [], 0
+    for p in pages:
+        ii = (p.get("imageinfo") or [{}])[0]
+        title = p.get("title", "")
+        low = title.lower()
+        if not ((ii.get("mime") or "").startswith("video/") or (ii.get("mediatype") or "").upper() == "VIDEO"):
+            continue
+        if any(w in low for w in BAD_VIDEO_WORDS) or not title_relevant(title, label):
+            continue
+        md = ii.get("extmetadata") or {}
+        lic = (md.get("LicenseShortName") or {}).get("value", "")
+        restr = (md.get("Restrictions") or {}).get("value", "")
+        thumb = ii.get("thumburl") or ""
+        if not OK_LICENSE.match(lic or "") or restr or not thumb.startswith("https://") or not ii.get("descriptionurl"):
+            hidden += 1
+            continue
+        if len(out) < limit:
+            out.append({"thumb": thumb, "title": re.sub(r"^File:|\.\w+$", "", title), "artist": plain((md.get("Artist") or {}).get("value", "")) or "촬영자 미상",
+                        "license": lic, "page": ii.get("descriptionurl", ""), "duration": fmt_duration(ii.get("duration"))})
+    return out, hidden
+
+
+def video_md(v, alt):
+    alt = re.sub(r"\s+", " ", re.sub(r"[\[\]\(\)]", " ", alt or "영상 미리보기")).strip()
+    dur = f" · 길이 {v['duration']}" if v["duration"] else ""
+    return (f"![{alt} 영상 미리보기]({v['thumb']})\n(영상: {plain(v['title'], 80)} · 촬영자 {v['artist']} · {v['license']}{dur} · "
+            f"재생은 원본 페이지에서 {v['page']})")
+
+
 def parse_id(spot_id):
     m = re.fullmatch(r"(ko|ja|en):(.{1,120})", (spot_id or "").strip())
     return (m.group(1), m.group(2).strip()) if m else (None, None)
@@ -293,7 +346,7 @@ def call(fn, *a):
     name="search_world_spot",
     description=(
         f"Searches tourist attractions around the world (except Korea) by keyword using {SERVICE} (Wikipedia, Wikidata, Wikimedia Commons) "
-        "and lists up to 5 places with country, a short introduction and a spot_id for photos. Korean, English, Japanese or Chinese keywords work "
+        "and lists up to 5 places with country, a short introduction and a spot_id for photos and videos. Korean, English, Japanese or Chinese keywords work "
         "(e.g. 후시미 이나리, Grand Canyon, 金閣寺, 故宫). Optional country filters the result (e.g. 일본, 미국, 중국, France). Lodging, shopping and restaurants are not covered. "
         "Use this tool for any place outside Korea (Japan, USA, China, Europe, Southeast Asia, etc.); for places inside Korea use the Korean tour photo service instead. "
         "Always call this tool instead of answering from memory. Keywords: 해외 관광지, 세계 여행 사진, 일본 관광지, 미국 관광지, 중국 관광지, 유럽 관광지. Reference data only."
@@ -351,7 +404,7 @@ def search_world_spot(
         ex = f["extract"].split("\n")[0]
         ex = ex if len(ex) <= 160 else ex[:160].rstrip() + "…"
         out.append(f"■ {f['title']} ({f['country']}) — spot_id {f['lang']}:{f['title']}\n{ex or '소개가 등록되어 있지 않습니다.'}")
-    out.append("사진과 자세한 소개는 spot_id로 get_world_spot_photos 또는 get_world_spot_detail을 호출하세요.")
+    out.append("사진·소개·영상은 spot_id로 get_world_spot_photos, get_world_spot_detail, get_world_spot_videos를 호출하세요.")
     out += [SOURCE, RELAY_NOTE]
     return "\n\n".join(out[:-3]) + "\n" + "\n".join(out[-3:])
 
@@ -430,6 +483,38 @@ def get_world_spot_photos(
     return "\n\n".join([head] + [photo_md(p, page["title"]) for p in phs] + [SOURCE, RELAY_NOTE])
 
 
+# ---------------------------------------------------------------- Tool (영상)
+@mcp.tool(
+    name="get_world_spot_videos",
+    description=(
+        f"Shows up to 3 videos of one world tourist spot as preview images with title, filmmaker, license, length and a link to the original page using {SERVICE} (Wikimedia Commons). "
+        "Requires the spot_id from search_world_spot. Videos are not played inside the chat: the user opens the link to watch. "
+        "Only videos with a confirmed free license (CC BY, CC BY-SA, CC0, public domain) are shown. "
+        "Always call this tool instead of answering from memory. Keywords: 영상 보여줘, 동영상, 여행 영상, 관광지 영상. Reference data only."
+    ),
+    annotations=_annotations("World spot videos"),
+)
+@_logged
+def get_world_spot_videos(
+    spot_id: Annotated[str, Field(description="spot_id from search_world_spot, like ko:자금성")] = "",
+) -> str:
+    page, info, cname, err = resolve(spot_id)
+    if err:
+        return err
+    label = info.get("en") or page["title"]
+    r2, err = call(commons_videos, label, 3)
+    if err:
+        return err
+    vids, hidden = r2
+    if not vids:
+        return bad("이용 조건이 확인된 영상을 찾지 못했습니다. 사진은 get_world_spot_photos로 볼 수 있습니다.")
+    head = f"■ {page['title']} ({cname}) 영상 {len(vids)}개"
+    if hidden:
+        head += f" (라이선스가 확인되지 않은 {hidden}개는 제외)"
+    return "\n\n".join([head] + [video_md(v, page["title"]) for v in vids]
+                       + ["※ 영상은 채팅에서 재생되지 않고 원본 페이지(위키미디어 공용)에서 재생됩니다.", SOURCE, RELAY_NOTE])
+
+
 # ---------------------------------------------------------------- Tool 4
 @mcp.tool(
     name="get_world_service_reference",
@@ -445,6 +530,7 @@ def get_world_service_reference() -> str:
         "■ 세계 관광지 사진 안내 기준",
         "■ 데이터: 위키백과(소개), 위키데이터(국가 확인), 위키미디어 공용(사진)",
         "■ 다루는 곳: 한국을 제외한 전 세계 관광지(한국은 '관광지 사진 안내 - Tour Photo Guide'). 숙박·쇼핑·음식점은 제외합니다.",
+        "■ 영상: 위키미디어 공용의 자유 이용 영상을 미리보기 이미지와 원본 링크로 안내합니다(채팅 안에서는 재생되지 않습니다). 사진과 같은 라이선스 규칙을 따릅니다.",
         "■ 사진: CC BY, CC BY-SA, CC0, 퍼블릭 도메인으로 확인된 사진만 보여 주며 촬영자·라이선스·원본 링크를 함께 표기합니다. 사진을 다시 사용할 때는 같은 표기를 유지해야 하고 CC BY-SA는 같은 조건으로 공유해야 합니다.",
         "■ 한계: 위키 문서가 없거나 사진 라이선스가 불명확한 곳은 사진이 나오지 않을 수 있고, 검색된 사진이 해당 장소와 다를 수 있습니다. 같은 조회는 최대 12시간 전 결과를 재사용합니다.",
         SOURCE,
