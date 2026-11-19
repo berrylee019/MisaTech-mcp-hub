@@ -26,6 +26,9 @@ mcp = FastMCP(
 
 TIMEOUT = 6.0
 CACHE_TTL = 12 * 3600
+# 관광지가 아닌 항목(국가·대륙·기업·단체·인물·행사·영화·동음이의 문서)의 위키데이터 분류
+NOT_PLACE = {"Q6256", "Q3624078", "Q5107", "Q4830453", "Q783794", "Q891723", "Q43229", "Q5", "Q1656682", "Q15275719", "Q1190554",
+             "Q7278", "Q11424", "Q4167410", "Q431289", "Q2085381"}
 KOREA = "Q884"   # 한국은 기존 '관광지 사진 안내 - Tour Photo Guide'(한국관광공사)가 담당
 LANGS = ("ko", "en", "ja", "zh")
 OK_LICENSE = re.compile(r"^(CC BY(-SA)?[ -]\d\.\d|CC0|Public domain|PD\b)", re.I)
@@ -158,7 +161,13 @@ def entity_info(qids):
             v = (((cl.get("mainsnak") or {}).get("datavalue") or {}).get("value") or {}).get("id")
             if v:
                 adm.append(v)
-        out[qid] = {"country": c, "en": ((e.get("labels") or {}).get("en") or {}).get("value", ""), "admin": adm[:3]}
+        inst = []
+        for cl in (e.get("claims") or {}).get("P31", []):
+            v = (((cl.get("mainsnak") or {}).get("datavalue") or {}).get("value") or {}).get("id")
+            if v:
+                inst.append(v)
+        out[qid] = {"country": c, "en": ((e.get("labels") or {}).get("en") or {}).get("value", ""), "admin": adm[:3],
+                    "instance": inst}
     return out
 
 
@@ -216,6 +225,11 @@ def country_match(names, want):
         if x == ko or x == en or (len(x) >= 3 and (x in ko or x in en)):
             return True
     return False
+
+
+def is_place(info):
+    """국가·기업·인물·행사 같은 항목이 아니라 장소로 볼 수 있는지"""
+    return not (set((info or {}).get("instance") or []) & NOT_PLACE)
 
 
 def commercial(title):
@@ -303,10 +317,12 @@ def commons_videos(label, limit=3):
         if not OK_LICENSE.match(lic or "") or restr or not thumb.startswith("https://") or not ii.get("descriptionurl"):
             hidden += 1
             continue
-        if len(out) < limit:
+        if len(out) < limit * 3:
             out.append({"thumb": thumb, "title": re.sub(r"^File:|\.\w+$", "", title), "artist": plain((md.get("Artist") or {}).get("value", "")) or "촬영자 미상",
-                        "license": lic, "page": ii.get("descriptionurl", ""), "duration": fmt_duration(ii.get("duration"))})
-    return out, hidden
+                        "license": lic, "page": ii.get("descriptionurl", ""), "duration": fmt_duration(ii.get("duration")),
+                        "secs": float(ii.get("duration") or 0)})
+    out.sort(key=lambda v: v["secs"] > 900)   # 15분을 넘는 긴 영상은 뒤로(안정 정렬이라 관련도 순서는 유지)
+    return out[:limit], hidden
 
 
 def video_md(v, alt):
@@ -373,6 +389,7 @@ def search_world_spot(
         info, err = call(with_country, [p["qid"] for p in pages])
         if err:
             return err
+        pages = [p for p in pages if is_place(info.get(p["qid"]))]
         cand = [(p, (info.get(p["qid"]) or {}).get("country")) for p in pages]
         logger.info("SEARCH lang=%s pages=%d with_country=%d", lang, len(pages), sum(1 for p, c in cand if c))
         cand = [(p, c) for p, c in cand if c]
@@ -398,7 +415,7 @@ def search_world_spot(
     if not found:
         if korea:
             return bad("한국 관광지는 '관광지 사진 안내 - Tour Photo Guide'에서 찾아 주세요. 이 서비스는 한국 밖 관광지를 안내합니다.")
-        return bad("조건에 맞는 장소를 찾지 못했습니다. 다른 이름(영어·현지어)이나 국가를 바꿔 보세요.")
+        return bad("조건에 맞는 관광지를 찾지 못했습니다. 국가·기업·행사가 아니라 구체적인 명소 이름(예: 에펠탑, 후시미 이나리)으로 검색해 보세요.")
     out = [f"■ '{kw}' 검색 결과 {len(found)}곳 중 {min(5, len(found))}곳{note}"]
     for f in found[:5]:
         ex = f["extract"].split("\n")[0]
@@ -419,8 +436,8 @@ def resolve(spot_id):
         return None, None, None, err
     page, info = r
     c = (info or {}).get("country")
-    if not page or not c or commercial(page["title"]):
-        return None, None, None, bad("해당 장소를 찾지 못했습니다.")
+    if not page or not c or commercial(page["title"]) or not is_place(info):
+        return None, None, None, bad("해당 관광지를 찾지 못했습니다. 국가·기업·행사가 아닌 구체적인 명소 이름으로 검색해 주세요.")
     if c == KOREA:
         return None, None, None, bad("한국 관광지는 '관광지 사진 안내 - Tour Photo Guide'에서 찾아 주세요.")
     names, err = call(country_names, [c])
