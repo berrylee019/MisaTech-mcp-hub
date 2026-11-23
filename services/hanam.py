@@ -416,11 +416,11 @@ def search_hanam_places(
 GENERIC_WORDS = ["식당", "카페", "맛집", "음식점", "레스토랑", "가게"]
 
 
-def _candidates(place: str, size: int = 5):
+def _candidates(place: str, size: int = 5, query: str = ""):
     anchor = detect_anchor(place)
     x, y = resolve_anchor(anchor)
     docs = kakao_get("/local/search/keyword.json", {
-        "query": f"하남 {place}", "x": x, "y": y, "radius": 10000, "size": 15,
+        "query": query or f"하남 {place}", "x": x, "y": y, "radius": 10000, "size": 15,
     }).get("documents", [])
     out = []
     for d in docs:
@@ -481,7 +481,26 @@ def _find_place(place: str):
     for c in _candidates(place, size=8):
         if _matches(place, c.get("place_name", "")):
             return c
+    core = _core_tokens(place)
+    if core:   # 지점 표기가 달라 못 찾는 경우(예: '스타벅스 미사역점' → '스타벅스 하남미사역점'): 상호만으로 미사 일대 재검색
+        for c in _candidates(place, size=8, query=f"미사 {core[0]}"):
+            if _matches(place, c.get("place_name", "")):
+                return c
     return None
+
+
+def _similar_names(place: str) -> str:
+    """찾지 못했을 때 보여줄 실제 후보 상호(같은 상호 단어를 가진 하남 미사 일대 매장)"""
+    core = _core_tokens(place)
+    names = []
+    try:
+        for c in _candidates(place, size=8, query=f"미사 {core[0]}" if core else ""):
+            n = c.get("place_name", "")
+            if n and (not core or any(t in re.sub(r"\s+", "", n) for t in core)) and n not in names:
+                names.append(n)
+    except Exception:
+        pass
+    return ", ".join(names[:5])
 
 
 def _ask_specific(place: str) -> str:
@@ -594,7 +613,9 @@ def get_waiting_summary(
             return _ask_specific(place)
         d = _find_place(place)
         if not d:
-            return (f"'{place}'을(를) 하남 미사 일대에서 찾지 못했습니다. 정확한 상호명으로 다시 입력해주세요. "
+            sim = _similar_names(place)
+            hint = f" 같은 상호의 가까운 매장: {sim}." if sim else " 비슷한 상호의 매장도 확인되지 않았습니다(다른 매장명을 지어내지 마세요)."
+            return (f"'{place}'을(를) 하남 미사 일대에서 찾지 못했습니다.{hint} 정확한 상호명으로 다시 입력해주세요. "
                     "(다른 장소의 후기를 대신 보여 드리지 않습니다.)")
         name = d["place_name"]
         core = _core_tokens(name)
