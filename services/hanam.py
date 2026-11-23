@@ -456,6 +456,12 @@ def _core_tokens(s: str) -> list:
     return out
 
 
+def _branch_tokens(name: str) -> list:
+    """지점 표기(예: '미사역점', '하남스타필드점')에서 지역 단서를 뽑는다. 없으면 빈 목록"""
+    flat = re.sub(r"\s+", "", name or "")
+    return [w for w in ("미사역", "미사강변", "미사호수", "하남스타필드", "스타필드하남", "풍산", "덕풍", "감일") if w in flat]
+
+
 def _matches(query: str, cand_name: str) -> bool:
     """후보 상호가 질문한 장소와 관련 있는지(핵심 단어 중 하나라도 포함). 핵심 단어가 없으면(스타필드 하남 등) 통과"""
     core = _core_tokens(query)
@@ -556,7 +562,9 @@ def get_parking_info(
 
 
 # ---------------------------------------------------------------- Tool 3
-WAIT_WORDS = ["웨이팅", "대기", "줄", "기다", "캐치테이블", "테이블링"]
+WAIT_WORDS = ["웨이팅", "대기", "줄", "기다", "캐치테이블", "테이블링"]   # 호환용(다른 곳에서 참조 시)
+# '대기업·대기질·줄거리·줄이다'처럼 다른 뜻이 섞이지 않도록 대기 관련 표현만 정확히 잡는다
+WAIT_RE = re.compile(r"웨이팅|대기\s?(?:시간|줄|인원|명단|번호|등록|가\s?(?:있|없|길|많)|는\s?(?:있|없|길|많|\d))|줄\s?(?:을\s?)?(?:서|섰|길|이\s?길)|기다렸|기다려야|기다리는|캐치테이블|테이블링")
 MIN_PATTERN = re.compile(r"(\d{1,3})\s*분")
 
 
@@ -590,6 +598,7 @@ def get_waiting_summary(
                     "(다른 장소의 후기를 대신 보여 드리지 않습니다.)")
         name = d["place_name"]
         core = _core_tokens(name)
+        branch = _branch_tokens(name)
         since = datetime.now(KST) - timedelta(days=183)
 
         docs = kakao_get("/search/blog", {
@@ -605,15 +614,23 @@ def get_waiting_summary(
             if dt < since:
                 continue
             text = strip_tags(doc.get("title", "") + " " + doc.get("contents", ""))
-            if not any(w in text for w in WAIT_WORDS):
+            flat = re.sub(r"\s+", "", text)
+            if not WAIT_RE.search(text):
                 continue
-            if core and not any(t in re.sub(r"\s+", "", text) for t in core):   # 해당 상호를 언급하지 않은 후기는 제외
+            if core and not any(t in flat for t in core):   # 해당 상호를 언급하지 않은 후기는 제외
+                continue
+            local = any(w in text for w in LOCAL_WORDS)
+            if not local and any(r in text for r in OTHER_REGIONS):   # 다른 지역 지점 후기 제외
+                continue
+            if not local and not any(b in flat for b in branch):     # 하남 미사 일대 후기로 확인되지 않으면 제외
                 continue
             sentences = re.split(r"(?<=[.!?…])\s+|\n", text)
-            snippet = next((s for s in sentences if any(w in s for w in WAIT_WORDS)), text[:80])
-            for s in sentences:
-                if any(w in s for w in WAIT_WORDS):
-                    minutes += [int(m) for m in MIN_PATTERN.findall(s) if 0 < int(m) <= 180]
+            wait_sents = [x for x in sentences if WAIT_RE.search(x)]
+            if not wait_sents:
+                continue
+            for x in wait_sents:
+                minutes += [int(m) for m in MIN_PATTERN.findall(x) if 0 < int(m) <= 180]
+            snippet = next((x for x in wait_sents if core and any(t in re.sub(r"\s+", "", x) for t in core)), wait_sents[0])
             mentions.append((dt, snippet[:90], doc.get("url", "")))
 
         header = f"[대기 요약] {name} (최근 6개월 블로그 후기 기준, 실시간 아님)"
