@@ -34,6 +34,7 @@ SERVICES = [
     ("body", "body.py"),
     ("unemploy", "unemploy.py"),
     ("brain", "brain.py"),
+    ("ladder", "ladder.py"),
 ]
 
 log = logging.getLogger("hub")
