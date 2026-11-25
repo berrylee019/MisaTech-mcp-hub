@@ -21,7 +21,7 @@ from starlette.responses import PlainTextResponse
 SERVICE = "사다리 게임 - Ladder Pick"   # 콘솔 등록명과 글자까지 동일해야 함
 ID_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 MIN_N, MAX_N = 2, 8
-RELAY_NOTE = "※ 답변 시 이 응답의 결과를 그대로 전달하고, 결과를 바꾸거나 직접 추측해 덧붙이지 마세요."
+RELAY_NOTE = "※ 답변 시 이 응답의 사다리 그림·연출 문구·결과를 그대로(줄이지 말고) 전달하고, 결과를 바꾸거나 직접 추측해 덧붙이지 마세요."
 MONEY_RE = re.compile(r"판돈|배팅|베팅|현금|입금|송금|계좌|도박|\d[\d,]*\s*(?:원|만\s?원|천\s?원|달러|엔)|[0-9]\s*만(?!\w)|\$")
 SYSTEM_RNG = random.SystemRandom()
 
@@ -157,19 +157,70 @@ def build(code, names, outcomes):
     return cols, rungs, result, end
 
 
-def draw(cols, rungs):
+def trace(rungs, start):
+    """start 칸에서 내려가는 길: 각 행의 (들어갈 때 칸, 나갈 때 칸) 목록과 도착 칸"""
+    pos, steps = start, []
+    for row in rungs:
+        nxt = pos + 1 if pos in row else (pos - 1 if pos - 1 in row else pos)
+        steps.append((pos, nxt))
+        pos = nxt
+    return steps, pos
+
+
+def draw(cols, rungs, start=None):
+    """사다리 그림(코드 블록). start를 주면 그 칸의 길을 * 로 표시한다."""
     n = len(cols)
+    steps = trace(rungs, start)[0] if start is not None else None
     head = "".join(f"{i + 1}".ljust(4) for i in range(n)).rstrip()
     lines = [head]
-    for row in rungs:
+    for r, row in enumerate(rungs):
+        a_, b_ = steps[r] if steps else (-1, -1)
         s = ""
         for j in range(n):
-            s += "|"
+            s += "*" if j in (a_, b_) else "|"
             if j < n - 1:
-                s += "---" if j in row else "   "
+                if j in row:
+                    s += "***" if (steps and {a_, b_} == {j, j + 1}) else "---"
+                else:
+                    s += "   "
         lines.append(s)
     lines.append("".join(chr(65 + i).ljust(4) for i in range(n)).rstrip())
     return "```\n" + "\n".join(lines) + "\n```"
+
+
+INTROS = ["🥁 두구두구두구…", "🪜 사다리를 타고 슝슝 내려가는 중…", "👀 과연 누가 걸릴까요?", "🎲 서버가 공정하게 흔드는 중!", "😳 숨죽이고 지켜보세요…"]
+REACT_KEYS = [("꽝", "😱 꽝!"), ("PASS", "😮‍💨 살았다!"), ("통과", "😮‍💨 살았다!"), ("커피", "☕ 오늘의 주인공!"), ("점심", "🍱 오늘의 주인공!"),
+              ("밥", "🍚 오늘의 주인공!"), ("청소", "🧹 오늘의 주인공!"), ("설거지", "🧽 오늘의 주인공!"), ("발표", "🎤 오늘의 주인공!"), ("간식", "🍪 오늘의 주인공!")]
+
+
+def reaction(outcome):
+    for k, v in REACT_KEYS:
+        if k in outcome:
+            return v
+    return "🎯 당첨!"
+
+
+def is_pass(outcome):
+    return "PASS" in outcome or "통과" in outcome
+
+
+def intro():
+    return SYSTEM_RNG.choice(INTROS)
+
+
+def result_lines(names, result):
+    return [f"  - {c} → {result[c]}  {reaction(result[c])}" for c in names]
+
+
+def stars(names, result):
+    w = [c for c in names if not is_pass(result[c]) and "꽝" not in result[c]]
+    k = [c for c in names if "꽝" in result[c]]
+    out = []
+    if k:
+        out.append("😱 꽝의 주인공: " + ", ".join(f"{c}" for c in k))
+    if w:
+        out.append("🎯 오늘의 주인공: " + ", ".join(f"{c}({result[c]})" for c in w))
+    return out
 
 
 def legend(cols):
@@ -198,8 +249,9 @@ def make_ladder(
         return err
     code = new_code(ns, os_)
     cols, rungs, result, end = build(code, ns, os_)
-    out = ["■ 사다리 결과", draw(cols, rungs), legend(cols), "· 결과"]
-    out += [f"  - {c} → {result[c]}" for c in ns]
+    out = [intro(), "■ 사다리 결과", draw(cols, rungs), legend(cols), "· 결과"]
+    out += result_lines(ns, result)
+    out += stars(ns, result)
     out += [f"· 사다리 코드: {code} (같은 참가자·결과로 reveal_ladder에 넣으면 같은 결과를 다시 볼 수 있어요)", RELAY_NOTE]
     return "\n".join(out)
 
@@ -228,7 +280,7 @@ def create_hidden_ladder(
     cols, rungs, _, _ = build(code, ns, os_)
     final = ", ".join(os_)
     return "\n".join([
-        "■ 사다리를 만들었어요! 결과는 아직 비밀이에요.", draw(cols, rungs), legend(cols),
+        "🔒 사다리를 만들었어요! 결과는 아직 비밀이에요. 😏", draw(cols, rungs), legend(cols),
         f"· 결과 칸({len(os_)}개): {final} (어느 칸에 있는지는 비밀)",
         f"· 사다리 코드: {code}",
         "· 한 명씩 공개하려면 이름을 말해 주세요. 공개할 때마다 코드, 참가자 이름 전체, 결과 문구 전체를 처음 입력한 그대로 reveal_ladder에 전달하세요.",
@@ -267,8 +319,12 @@ def reveal_ladder(
     if who:
         if who not in result:
             return bad("그 이름은 참가자에 없어요. 참가자: " + ", ".join(ns))
-        return "\n".join([f"■ {who} → {result[who]}", RELAY_NOTE])
-    return "\n".join(["■ 전체 결과"] + [f"  - {c} → {result[c]}" for c in ns] + [RELAY_NOTE])
+        i = cols.index(who)
+        steps, endpos = trace(rungs, i)
+        return "\n".join([intro(), f"🪜 {who}({i + 1}번)의 길 — * 표시를 따라가요", draw(cols, rungs, i),
+                          f"도착: {chr(65 + endpos)}", f"👉 {who} → {result[who]}  {reaction(result[who])}", RELAY_NOTE])
+    out = [intro(), "■ 전체 결과"] + result_lines(ns, result) + stars(ns, result) + [RELAY_NOTE]
+    return "\n".join(out)
 
 
 @mcp.tool(
@@ -286,7 +342,7 @@ def pick_one_person(
     ns, err = parse_names(names)
     if err:
         return err
-    return "\n".join([f"■ 뽑힌 사람: {SYSTEM_RNG.choice(ns)} (참가자 {len(ns)}명 중)", RELAY_NOTE])
+    return "\n".join([intro(), f"🎉 뽑힌 사람: {SYSTEM_RNG.choice(ns)}! (참가자 {len(ns)}명 중)", RELAY_NOTE])
 
 
 @mcp.tool(
