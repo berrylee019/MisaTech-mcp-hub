@@ -10,6 +10,7 @@ import os
 import random
 import re
 import time
+import unicodedata
 from typing import Annotated
 
 import uvicorn
@@ -167,25 +168,44 @@ def trace(rungs, start):
     return steps, pos
 
 
-def draw(cols, rungs, start=None):
-    """사다리 그림(코드 블록). start를 주면 그 칸의 길을 * 로 표시한다."""
+def dwidth(t):
+    """글자 표시 폭(한글·이모지 등 넓은 글자는 2칸)"""
+    return sum(2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1 for ch in t)
+
+
+def pad(t, w):
+    return t + " " * max(0, w - dwidth(t))
+
+
+MAX_PIC = 46   # 그림 한 줄 최대 폭(칸): 넘으면 이름·결과 대신 숫자·알파벳으로 그린다
+
+
+def draw(cols, rungs, start=None, top=None, bottom=None):
+    """사다리 그림(코드 블록). top/bottom에 이름·결과 문구를 주면 폭이 맞을 때 그대로 표시, 안 맞으면 숫자·알파벳.
+    start를 주면 그 칸의 길을 * 로 표시한다. 반환: (그림, 이름·결과 표시 여부)"""
     n = len(cols)
+    labels = (top or []) + (bottom or [])
+    w = max([4] + [dwidth(x) + 1 for x in labels]) if labels else 4
+    fancy = bool(labels) and n * w <= MAX_PIC
+    if not fancy:
+        w = 4
     steps = trace(rungs, start)[0] if start is not None else None
-    head = "".join(f"{i + 1}".ljust(4) for i in range(n)).rstrip()
-    lines = [head]
+    t_lab = top if (fancy and top) else [str(i + 1) for i in range(n)]
+    b_lab = bottom if (fancy and bottom) else [chr(65 + i) for i in range(n)]
+    lines = ["".join(pad(x, w) for x in t_lab).rstrip()]
     for r, row in enumerate(rungs):
         a_, b_ = steps[r] if steps else (-1, -1)
-        s = ""
+        line = ""
         for j in range(n):
-            s += "*" if j in (a_, b_) else "|"
+            line += "*" if j in (a_, b_) else "|"
             if j < n - 1:
                 if j in row:
-                    s += "***" if (steps and {a_, b_} == {j, j + 1}) else "---"
+                    line += ("*" if (steps and {a_, b_} == {j, j + 1}) else "-") * (w - 1)
                 else:
-                    s += "   "
-        lines.append(s)
-    lines.append("".join(chr(65 + i).ljust(4) for i in range(n)).rstrip())
-    return "```\n" + "\n".join(lines) + "\n```"
+                    line += " " * (w - 1)
+        lines.append(line)
+    lines.append("".join(pad(x, w) for x in b_lab).rstrip())
+    return "```\n" + "\n".join(lines) + "\n```", fancy
 
 
 INTROS = ["🥁 두구두구두구…", "🪜 사다리를 타고 슝슝 내려가는 중…", "👀 과연 누가 걸릴까요?", "🎲 서버가 공정하게 흔드는 중!", "😳 숨죽이고 지켜보세요…"]
@@ -223,8 +243,8 @@ def stars(names, result):
     return out
 
 
-def legend(cols):
-    return "참가자: " + " / ".join(f"{i + 1}={c}" for i, c in enumerate(cols))
+def legend(cols, fancy=False):
+    return "" if fancy else "참가자: " + " / ".join(f"{i + 1}={c}" for i, c in enumerate(cols))
 
 
 @mcp.tool(
@@ -249,7 +269,14 @@ def make_ladder(
         return err
     code = new_code(ns, os_)
     cols, rungs, result, end = build(code, ns, os_)
-    out = [intro(), "■ 사다리 결과", draw(cols, rungs), legend(cols), "· 결과"]
+    bottom = [None] * len(cols)
+    for c in cols:
+        bottom[end[c]] = result[c]
+    pic, fancy = draw(cols, rungs, top=cols, bottom=bottom)
+    out = [intro(), "■ 사다리 결과", pic]
+    if not fancy:
+        out += [legend(cols), "도착 칸 결과: " + " / ".join(f"{chr(65 + i)}={bottom[i]}" for i in range(len(cols)))]
+    out += ["· 결과"]
     out += result_lines(ns, result)
     out += stars(ns, result)
     out += [f"· 사다리 코드: {code} (같은 참가자·결과로 reveal_ladder에 넣으면 같은 결과를 다시 볼 수 있어요)", RELAY_NOTE]
@@ -279,8 +306,9 @@ def create_hidden_ladder(
     code = new_code(ns, os_)
     cols, rungs, _, _ = build(code, ns, os_)
     final = ", ".join(os_)
+    pic, fancy = draw(cols, rungs, top=cols, bottom=["?"] * len(cols))
     return "\n".join([
-        "🔒 사다리를 만들었어요! 결과는 아직 비밀이에요. 😏", draw(cols, rungs), legend(cols),
+        "🔒 사다리를 만들었어요! 결과는 아직 비밀이에요. 😏", pic] + ([] if fancy else [legend(cols)]) + [
         f"· 결과 칸({len(os_)}개): {final} (어느 칸에 있는지는 비밀)",
         f"· 사다리 코드: {code}",
         "· 한 명씩 공개하려면 이름을 말해 주세요. 공개할 때마다 코드, 참가자 이름 전체, 결과 문구 전체를 처음 입력한 그대로 reveal_ladder에 전달하세요.",
@@ -321,8 +349,9 @@ def reveal_ladder(
             return bad("그 이름은 참가자에 없어요. 참가자: " + ", ".join(ns))
         i = cols.index(who)
         steps, endpos = trace(rungs, i)
-        return "\n".join([intro(), f"🪜 {who}({i + 1}번)의 길 — * 표시를 따라가요", draw(cols, rungs, i),
-                          f"도착: {chr(65 + endpos)}", f"👉 {who} → {result[who]}  {reaction(result[who])}", RELAY_NOTE])
+        pic, fancy = draw(cols, rungs, i, top=cols, bottom=["?"] * len(cols))
+        return "\n".join([intro(), f"🪜 {who}({i + 1}번째 칸)의 길 — * 표시를 따라가요", pic,
+                          f"도착: 왼쪽에서 {endpos + 1}번째 칸", f"👉 {who} → {result[who]}  {reaction(result[who])}", RELAY_NOTE])
     out = [intro(), "■ 전체 결과"] + result_lines(ns, result) + stars(ns, result) + [RELAY_NOTE]
     return "\n".join(out)
 
